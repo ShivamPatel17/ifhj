@@ -15,7 +15,12 @@ type CommonProps = {
   title: string;
   items: FilterItem[];
   placeholder?: string;
-  onPick: (id: string) => void;
+  /**
+   * Single-select: Enter picks one item and the caller closes. Unused (and may
+   * be omitted) when `multiSelect` is set — see `onApply`. `exclude` is always
+   * `false` unless `allowExclude` is set.
+   */
+  onPick?: (id: string, exclude: boolean) => void;
   onCancel: () => void;
   onClear?: () => void;
   currentId?: string;
@@ -23,6 +28,17 @@ type CommonProps = {
   submitLabel?: string;
   busy?: boolean;
   busyLabel?: string;
+  /** Adds a Tab toggle between "show only" and "exclude" modes. */
+  allowExclude?: boolean;
+  initialExclude?: boolean;
+  /**
+   * Multi-select mode: Enter toggles the item's membership and the picker stays
+   * open; ⌃x deselects all. Nothing is applied until the user leaves (Esc),
+   * which hands the whole selection to `onApply`.
+   */
+  multiSelect?: boolean;
+  initialSelected?: readonly string[];
+  onApply?: (ids: string[], exclude: boolean) => void;
 };
 
 type LocalProps = CommonProps & {
@@ -77,8 +93,28 @@ export function FilterPicker({
   submitLabel = "select",
   busy = false,
   busyLabel = "Working…",
+  allowExclude = false,
+  initialExclude = false,
+  multiSelect = false,
+  initialSelected,
+  onApply,
 }: Props) {
   const { cols: termCols, rows: termRows } = useDimensions();
+  const [exclude, setExclude] = useState(initialExclude);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelected ?? []));
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // Esc leaves the picker. Single-select just cancels; multi-select applies the
+  // whole accumulated selection at once (nothing changed the board until now).
+  const leave = () => {
+    if (multiSelect) onApply?.(Array.from(selected), exclude);
+    else onCancel();
+  };
   // Padding, borders, title, input, indicators, and footer need 14 rows.
   const maxPickerRows = Math.max(1, Math.min(15, termRows - 14));
   const innerWidth = Math.max(1, termCols - 6);
@@ -166,14 +202,22 @@ export function FilterPicker({
   useInput(
     (input, key) => {
       if (busyRef.current && key.escape) {
-        onCancel();
+        leave();
         return;
       }
-      if (onClear && !busyRef.current && key.ctrl && input === "x") {
-        lockSubmit(onClear);
+      if (allowExclude && !busyRef.current && key.tab) {
+        setExclude((e) => !e);
+        return;
+      }
+      if (!busyRef.current && key.ctrl && input === "x") {
+        if (multiSelect) {
+          setSelected(new Set());
+          return;
+        }
+        if (onClear) lockSubmit(onClear);
       }
     },
-    { isActive: busy || !!onClear },
+    { isActive: busy || !!onClear || allowExclude || multiSelect },
   );
 
   // Sticky scroll: only shift when cursor hits an edge. Pure derivation at
@@ -190,7 +234,12 @@ export function FilterPicker({
     <Box flexDirection="column" padding={2} borderStyle="round" borderColor={accent}>
       <Box width={innerWidth} height={1} overflow="hidden">
         <Text color={accent} bold wrap="truncate">
-          {truncate(title, innerWidth)}
+          {truncate(
+            `${title}${allowExclude ? (exclude ? "  — excluding" : "  — show only") : ""}${
+              multiSelect ? `  (${selected.size} selected)` : ""
+            }`,
+            innerWidth,
+          )}
         </Text>
       </Box>
       <Box marginTop={1} width={innerWidth} height={1} overflow="hidden">
@@ -214,9 +263,13 @@ export function FilterPicker({
             }
             const submitted = currentItems(latestQuery);
             const item = submitted[clamp(getIdx(), 0, Math.max(0, submitted.length - 1))];
-            if (item) lockSubmit(() => onPick(item.id));
+            if (!item) return;
+            // Multi-select toggles in place and keeps the picker open; single
+            // select picks and lets the caller close.
+            if (multiSelect) toggleSelected(item.id);
+            else if (onPick) lockSubmit(() => onPick(item.id, exclude));
           }}
-          onCancel={onCancel}
+          onCancel={leave}
         />
       </Box>
       <Box marginTop={1} flexDirection="column">
@@ -262,6 +315,7 @@ export function FilterPicker({
             maxRows={maxPickerRows}
             width={innerWidth}
             {...(currentId ? { currentId } : {})}
+            {...(multiSelect ? { selected } : {})}
           />
         )}
       </Box>
@@ -270,13 +324,16 @@ export function FilterPicker({
           <>
             <Hint k="↑↓" label="nav" />
             <Hint k="PgUp/PgDn" label="page" />
-            <Hint k="⏎" label={submitLabel} />
+            <Hint k="⏎" label={multiSelect ? "toggle" : submitLabel} />
           </>
         ) : ready && error && onRetry ? (
           <Hint k="⏎" label="retry" />
         ) : null}
-        {!busy && onClear ? <Hint k="⌃x" label="clear" /> : null}
-        <Hint k="esc" label="cancel" />
+        {!busy && allowExclude ? <Hint k="⇥" label="show/exclude" /> : null}
+        {!busy && (multiSelect || onClear) ? (
+          <Hint k="⌃x" label={multiSelect ? "clear all" : "clear"} />
+        ) : null}
+        <Hint k="esc" label={multiSelect ? "apply" : "cancel"} />
       </Box>
     </Box>
   );
@@ -293,6 +350,7 @@ function PickerRows({
   maxRows,
   width,
   currentId,
+  selected: selectedIds,
 }: {
   filtered: FilterItem[];
   idx: number;
@@ -300,6 +358,8 @@ function PickerRows({
   maxRows: number;
   width: number;
   currentId?: string;
+  /** Present only in multi-select mode; drives the `[x]`/`[ ]` checkbox. */
+  selected?: Set<string>;
 }) {
   const end = Math.min(filtered.length, scroll + maxRows);
   const hiddenAbove = scroll;
@@ -309,9 +369,13 @@ function PickerRows({
       {hiddenAbove > 0 ? <Text color={theme.muted}> ^ {hiddenAbove} more above</Text> : null}
       {filtered.slice(scroll, end).map((it, i) => {
         const absolute = scroll + i;
-        const selected = absolute === idx;
+        const cursorHere = absolute === idx;
+        const checkbox = selectedIds ? (selectedIds.has(it.id) ? "[x] " : "[ ] ") : "";
         const activeText = it.id === currentId ? " (active)" : "";
-        const available = Math.max(1, width - 2 - Bun.stringWidth(activeText));
+        const available = Math.max(
+          1,
+          width - 2 - Bun.stringWidth(checkbox) - Bun.stringWidth(activeText),
+        );
         const hintWidth = it.hint
           ? Math.min(Bun.stringWidth(it.hint) + 1, Math.floor(available / 2))
           : 0;
@@ -319,11 +383,14 @@ function PickerRows({
         const labelText = truncate(it.label, Math.max(1, available - Bun.stringWidth(hintText)));
         return (
           <Box key={it.id} width={width} height={1} overflow="hidden">
-            <Text color={selected ? theme.accent : theme.muted}>{selected ? "> " : "  "}</Text>
+            <Text color={cursorHere ? theme.accent : theme.muted}>{cursorHere ? "> " : "  "}</Text>
+            {checkbox ? (
+              <Text color={selectedIds?.has(it.id) ? theme.accent : theme.muted}>{checkbox}</Text>
+            ) : null}
             <Text
-              {...fg(selected ? theme.fg : theme.fgDim)}
-              bold={selected}
-              inverse={selected}
+              {...fg(cursorHere ? theme.fg : theme.fgDim)}
+              bold={cursorHere}
+              inverse={cursorHere}
               wrap="truncate"
             >
               {labelText}

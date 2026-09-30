@@ -157,6 +157,7 @@ type Modal =
   | { kind: "filter-sprint"; sprints: string[] }
   | { kind: "filter-label"; labels: string[] }
   | { kind: "filter-epic"; epics: string[] }
+  | { kind: "filter-status"; statuses: string[] }
   | {
       kind: "create";
       projectKey: string;
@@ -223,6 +224,7 @@ type Filters = {
   sprint: string | null;
   label: string | null;
   epic: string | null;
+  status: { values: string[]; exclude: boolean } | null;
 };
 
 function detailKeyFromReturn(
@@ -239,6 +241,7 @@ const EMPTY_FILTERS: Filters = {
   sprint: null,
   label: null,
   epic: null,
+  status: null,
 };
 
 function activeFilterCount(f: Filters): number {
@@ -658,6 +661,11 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
     if (filters.sprint) list = list.filter((i) => i.sprintName === filters.sprint);
     if (filters.label) list = list.filter((i) => i.labels.includes(filters.label!));
     if (filters.epic) list = list.filter((i) => i.epicKey === filters.epic);
+    if (filters.status && filters.status.values.length > 0) {
+      const s = filters.status;
+      const chosen = new Set(s.values);
+      list = list.filter((i) => (s.exclude ? !chosen.has(i.statusName) : chosen.has(i.statusName)));
+    }
     return list;
   }, [issues, filters]);
   // Overlay optimistic moves: a card with a pending move is shown under its
@@ -705,12 +713,14 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
     const sprints = new Set<string>();
     const labels = new Set<string>();
     const epics = new Set<string>();
+    const statuses = new Set<string>();
     for (const i of issues) {
       assignees.add(i.assignee ?? "Unassigned");
       types.add(i.issueType);
       if (i.sprintName) sprints.add(i.sprintName);
       for (const l of i.labels) labels.add(l);
       if (i.epicKey) epics.add(i.epicKey);
+      if (i.statusName) statuses.add(i.statusName);
     }
     const sortSet = (s: Set<string>) => Array.from(s).toSorted((a, b) => a.localeCompare(b));
     return {
@@ -723,6 +733,7 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
       sprints: sortSet(sprints),
       labels: sortSet(labels),
       epics: sortSet(epics),
+      statuses: sortSet(statuses),
     };
   }, [issues]);
 
@@ -2844,6 +2855,10 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
       { id: "sprint", label: `Sprint${filters.sprint ? ` · ${filters.sprint}` : ""}` },
       { id: "label", label: `Label${filters.label ? ` · ${filters.label}` : ""}` },
       { id: "epic", label: `Epic${filters.epic ? ` · ${filters.epic}` : ""}` },
+      {
+        id: "status",
+        label: `Status${filters.status ? ` · ${filters.status.exclude ? "not " : ""}${filters.status.values.join(", ")}` : ""}`,
+      },
       ...(count > 0 ? [{ id: "clear", label: "Clear all filters" }] : []),
     ];
     return (
@@ -2879,12 +2894,42 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
                 return;
               }
               showModal({ kind: "filter-epic", epics: filterOptions.epics });
+            } else if (id === "status") {
+              if (filterOptions.statuses.length === 0) {
+                flash("No statuses found.", "info");
+                return;
+              }
+              showModal({ kind: "filter-status", statuses: filterOptions.statuses });
             }
           }}
           onCancel={closeModal}
         />
         <ToastStack toasts={toasts} maxWidth={termCols} onDismiss={dismiss} />
       </Box>
+    );
+  }
+  if (modal.kind === "filter-status") {
+    return (
+      <FilterPickerModal
+        label="status"
+        items={modal.statuses}
+        multiSelect
+        allowExclude
+        initialExclude={filters.status?.exclude ?? false}
+        initialSelected={filters.status?.values ?? []}
+        onApply={(ids, exclude) => {
+          markSelectionIntent();
+          setFilters((f) => ({ ...f, status: ids.length > 0 ? { values: ids, exclude } : null }));
+          showModal({ kind: "filter-menu" });
+          flash(
+            ids.length > 0
+              ? `status: ${exclude ? "not " : ""}${ids.join(", ")}`
+              : "status filter cleared",
+            "ok",
+          );
+        }}
+        onCancel={() => showModal({ kind: "filter-menu" })}
+      />
     );
   }
   if (
@@ -2895,7 +2940,7 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
     modal.kind === "filter-epic"
   ) {
     const spec: {
-      key: keyof Filters;
+      key: Exclude<keyof Filters, "status">;
       label: string;
       items: string[];
     } =

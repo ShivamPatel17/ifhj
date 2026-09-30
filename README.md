@@ -105,37 +105,37 @@ Pickers and required-field screens scroll to keep the selected row and controls 
 
 ### Board
 
-| Key             | Action                                             |
-| --------------- | -------------------------------------------------- |
-| `← → h l`       | move between columns                               |
-| `↑ ↓ j k`       | move within column                                 |
-| `g` / `G`       | top / bottom of column                             |
-| `PgUp` / `PgDn` | page within column                                 |
-| `Enter`         | card action menu                                   |
-| `v`             | view issue details                                 |
-| `e`             | edit title (inline)                                |
-| `E`             | edit description (editor)                          |
-| `t`             | choose an available workflow transition            |
-| `m`             | move to any column                                 |
-| `< >`           | transition to prev / next column                   |
-| `[ ]`           | rerank card up / down within column                |
-| `i`             | assign to me                                       |
-| `y` / `Y`       | copy issue key / URL                               |
-| `o` / `O`       | open card / board in browser                       |
-| `c`             | create issue                                       |
-| `a`             | quick add to current column                        |
-| `/`             | highlight loaded cards by key, title, or assignee  |
-| `n` / `N`       | next / prev search match                           |
-| `f`             | filter menu (assignee, type, sprint, label, epic)  |
-| `s`             | toggle swimlane view (grouped lanes)               |
-| `T`             | toggle Timeline view                               |
-| `F`             | clear all filters                                  |
-| `R`             | quick open — recents, or type to search all issues |
-| `J`             | JQL query view                                     |
-| `r`             | refresh                                            |
-| `Ctrl+G`        | dismiss notifications                              |
-| `?`             | help                                               |
-| `q`             | back to board picker                               |
+| Key             | Action                                                                 |
+| --------------- | ---------------------------------------------------------------------- |
+| `← → h l`       | move between columns                                                   |
+| `↑ ↓ j k`       | move within column                                                     |
+| `g` / `G`       | top / bottom of column                                                 |
+| `PgUp` / `PgDn` | page within column                                                     |
+| `Enter`         | card action menu                                                       |
+| `v`             | view issue details                                                     |
+| `e`             | edit title (inline)                                                    |
+| `E`             | edit description (editor)                                              |
+| `t`             | choose an available workflow transition                                |
+| `m`             | move to any column                                                     |
+| `< >`           | transition to prev / next column                                       |
+| `[ ]`           | rerank card up / down within column                                    |
+| `i`             | assign to me                                                           |
+| `y` / `Y`       | copy issue key / URL                                                   |
+| `o` / `O`       | open card / board in browser                                           |
+| `c`             | create issue                                                           |
+| `a`             | quick add to current column                                            |
+| `/`             | highlight loaded cards by key, title, or assignee                      |
+| `n` / `N`       | next / prev search match                                               |
+| `f`             | filter menu (assignee, type, sprint, label, epic, status show/exclude) |
+| `s`             | toggle swimlane view (grouped lanes)                                   |
+| `T`             | toggle Timeline view                                                   |
+| `F`             | clear all filters                                                      |
+| `R`             | quick open — recents, or type to search all issues                     |
+| `J`             | JQL query view                                                         |
+| `r`             | refresh                                                                |
+| `Ctrl+G`        | dismiss notifications                                                  |
+| `?`             | help                                                                   |
+| `q`             | back to board picker                                                   |
 
 ### Detail view
 
