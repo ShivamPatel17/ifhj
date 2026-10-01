@@ -360,3 +360,141 @@ test("shows the edited tail of a long query and submits its matching item", asyn
     restoreDimensions();
   }
 });
+
+const FRUIT = [
+  { id: "a", label: "Apple" },
+  { id: "b", label: "Banana" },
+  { id: "c", label: "Cherry" },
+];
+
+test("multi-select toggles rows in place and applies the whole set on Esc", async () => {
+  const applied: { ids: string[]; exclude: boolean }[] = [];
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      multiSelect
+      onApply={(ids, exclude) => applied.push({ ids, exclude })}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  await sendInput(app, terminal.stdin, "\r"); // toggle Apple (cursor 0)
+  await sendInput(app, terminal.stdin, "\x1b[B");
+  await sendInput(app, terminal.stdin, "\x1b[B"); // down to Cherry
+  await sendInput(app, terminal.stdin, "\r"); // toggle Cherry — picker stays open
+  expect(Bun.stripANSI(terminal.output())).toContain("(2 selected)");
+  await sendInput(app, terminal.stdin, "\x1b"); // Esc commits the whole set
+  await waitFor(() => applied.length === 1, "apply on esc");
+  expect(applied[0]).toEqual({ ids: ["a", "c"], exclude: false });
+});
+
+test("multi-select re-toggling a row removes it without closing the picker", async () => {
+  const applied: { ids: string[]; exclude: boolean }[] = [];
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      multiSelect
+      onApply={(ids, exclude) => applied.push({ ids, exclude })}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  await sendInput(app, terminal.stdin, "\r"); // select Apple
+  await sendInput(app, terminal.stdin, "\r"); // second Enter deselects it
+  await sendInput(app, terminal.stdin, "\x1b");
+  await waitFor(() => applied.length === 1, "apply on esc");
+  expect(applied[0]).toEqual({ ids: [], exclude: false });
+});
+
+test("multi-select renders a checkbox per row and marks the selected ones", async () => {
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      multiSelect
+      initialSelected={["b"]}
+      onApply={() => {}}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  const frame = Bun.stripANSI(terminal.output());
+  expect(frame).toContain("[x] Banana");
+  expect(frame).toContain("[ ] Apple");
+  expect(frame).toContain("(1 selected)");
+});
+
+test("multi-select Ctrl+x deselects everything", async () => {
+  const applied: { ids: string[]; exclude: boolean }[] = [];
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      multiSelect
+      initialSelected={["a", "b"]}
+      onApply={(ids, exclude) => applied.push({ ids, exclude })}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  expect(Bun.stripANSI(terminal.output())).toContain("(2 selected)");
+  await sendInput(app, terminal.stdin, "\x18"); // Ctrl+x
+  await sendInput(app, terminal.stdin, "\x1b");
+  await waitFor(() => applied.length === 1, "apply on esc");
+  expect(applied[0]).toEqual({ ids: [], exclude: false });
+});
+
+test("multi-select Tab switches to exclude mode and reports it on apply", async () => {
+  const applied: { ids: string[]; exclude: boolean }[] = [];
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      multiSelect
+      allowExclude
+      onApply={(ids, exclude) => applied.push({ ids, exclude })}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  await sendInput(app, terminal.stdin, "\t");
+  expect(Bun.stripANSI(terminal.output())).toContain("excluding");
+  await sendInput(app, terminal.stdin, "\r"); // toggle Apple
+  await sendInput(app, terminal.stdin, "\x1b");
+  await waitFor(() => applied.length === 1, "apply on esc");
+  expect(applied[0]).toEqual({ ids: ["a"], exclude: true });
+});
+
+test("multi-select drops seeded ids that are no longer in items", async () => {
+  const applied: { ids: string[]; exclude: boolean }[] = [];
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      multiSelect
+      initialSelected={["b", "ghost"]}
+      onApply={(ids, exclude) => applied.push({ ids, exclude })}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  expect(Bun.stripANSI(terminal.output())).toContain("(1 selected)");
+  await sendInput(app, terminal.stdin, "\x1b");
+  await waitFor(() => applied.length === 1, "apply on esc");
+  expect(applied[0]).toEqual({ ids: ["b"], exclude: false });
+});
+
+test("single-select forwards the exclude flag to onPick after Tab", async () => {
+  const picked: { id: string; exclude: boolean }[] = [];
+  const { app, terminal } = interactive(
+    <FilterPicker
+      title="statuses"
+      items={FRUIT}
+      allowExclude
+      onPick={(id, exclude) => picked.push({ id, exclude })}
+      onCancel={() => {}}
+    />,
+  );
+  await app.waitUntilRenderFlush();
+  await sendInput(app, terminal.stdin, "\t");
+  expect(Bun.stripANSI(terminal.output())).toContain("excluding");
+  await sendInput(app, terminal.stdin, "\r"); // pick Apple (cursor 0)
+  await waitFor(() => picked.length === 1, "pick");
+  expect(picked[0]).toEqual({ id: "a", exclude: true });
+});

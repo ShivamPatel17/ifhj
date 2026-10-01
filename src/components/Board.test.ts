@@ -990,38 +990,74 @@ test("status exclude filter hides the toggled status", async () => {
   expect(result).toEqual({ todo: true, done: false });
 });
 
-test("status picker stays open on Enter so a re-toggle deselects and clears", async () => {
+test("status exclude filter hides several statuses at once", async () => {
   const result = await runBoardCase(
-    "filter-status-toggle-off",
+    "filter-status-exclude-many",
     `
-      ${STATUS_FILTER_FETCH}
+      // Three columns / statuses so excluding two leaves exactly one card.
+      const threeColConfig = () => response({
+        name: "Test board",
+        location: { key: "PROJ" },
+        columnConfig: { columns: [
+          { name: "To Do", statuses: [{ id: "1" }] },
+          { name: "In Review", statuses: [{ id: "3" }] },
+          { name: "Done", statuses: [{ id: "2" }] },
+        ] },
+      });
+      const card = (key, summary, statusId, statusName, category) => ({
+        id: key.split("-")[1],
+        key,
+        fields: {
+          summary,
+          description: null,
+          status: { id: statusId, name: statusName, statusCategory: { key: category } },
+          updated: "2026-01-01T00:00:00.000Z",
+          issuetype: { name: "Task" },
+          labels: [],
+        },
+      });
+      globalThis.fetch = async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/rest/api/3/field") return response([]);
+        if (url.pathname === "/rest/api/3/myself") return response({ accountId: "me" });
+        if (url.pathname.endsWith("/configuration")) return threeColConfig();
+        if (url.pathname.endsWith("/allData.json")) return response({});
+        if (url.pathname.endsWith("/user/assignable/search")) return response([]);
+        if (url.pathname === "/rest/agile/1.0/board/7/issue") {
+          return issuePage(
+            card("PROBE-1", "TodoCard", "1", "To Do", "new"),
+            card("PROBE-2", "ReviewCard", "3", "In Review", "indeterminate"),
+            card("PROBE-3", "DoneCard", "2", "Done", "done"),
+          );
+        }
+        throw new Error("unexpected request: " + url);
+      };
       const terminal = createTerminal();
       const app = mount(terminal);
       ${OPEN_STATUS_PICKER}
-      terminal.stdin.write("To Do");
-      terminal.stdin.emit("readable");
-      await app.waitUntilRenderFlush();
-      // First Enter selects.
+      // Exclude mode, then toggle two statuses. Options are alpha-sorted
+      // (Done, In Review, To Do): toggle Done (cursor 0), then In Review.
+      terminal.stdin.write("\\t"); terminal.stdin.emit("readable");
+      await waitFor(() => terminal.output().includes("excluding"), "exclude mode");
       terminal.stdin.write("\\r"); terminal.stdin.emit("readable");
-      await waitFor(() => terminal.output().includes("(1 selected)"), "one selected");
-      // Picker did not close: a second Enter on the same row deselects it.
+      terminal.stdin.write("\\u001b[B"); terminal.stdin.emit("readable");
       terminal.stdin.write("\\r"); terminal.stdin.emit("readable");
-      await waitFor(() => terminal.output().includes("(0 selected)"), "deselected");
-      // Applying an empty selection clears the filter — both cards remain.
+      await waitFor(() => terminal.output().includes("(2 selected)"), "two selected");
       await send(app, terminal, "\\u001b");
-      await waitFor(() => terminal.output().includes("status filter cleared"), "cleared");
+      await waitFor(() => terminal.output().includes("status: not Done"), "filter applied");
       await send(app, terminal, "\\u001b");
       const grid = await currentPaint(app, terminal);
       app.unmount();
       console.log(JSON.stringify({
         todo: grid.includes("TodoCard"),
+        review: grid.includes("ReviewCard"),
         done: grid.includes("DoneCard"),
       }));
     `,
     "",
     8_000,
   );
-  expect(result).toEqual({ todo: true, done: true });
+  expect(result).toEqual({ todo: true, review: false, done: false });
 });
 
 test("disposing a board cancels a queued coalesced reload", async () => {

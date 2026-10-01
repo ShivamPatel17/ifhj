@@ -248,6 +248,14 @@ function activeFilterCount(f: Filters): number {
   return Object.values(f).filter(Boolean).length;
 }
 
+/** Whether two status filters are equivalent (same exclude mode and value set). */
+function sameStatusFilter(a: Filters["status"], b: Filters["status"]): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.exclude !== b.exclude || a.values.length !== b.values.length) return false;
+  const other = new Set(b.values);
+  return a.values.every((v) => other.has(v));
+}
+
 function DescriptionSaveModal({
   issueKey,
   busy,
@@ -2918,17 +2926,18 @@ export function BoardView({ cfg, board, maxColumns, onExit }: Props) {
         initialExclude={filters.status?.exclude ?? false}
         initialSelected={filters.status?.values ?? []}
         onApply={(ids, exclude) => {
-          markSelectionIntent();
-          setFilters((f) => ({ ...f, status: ids.length > 0 ? { values: ids, exclude } : null }));
+          const next = ids.length > 0 ? { values: ids, exclude } : null;
           showModal({ kind: "filter-menu" });
+          // Esc always commits in multi-select, so a no-op Esc (nothing was
+          // toggled) lands here too — skip the churn and toast when unchanged.
+          if (sameStatusFilter(filters.status, next)) return;
+          markSelectionIntent();
+          setFilters((f) => ({ ...f, status: next }));
           flash(
-            ids.length > 0
-              ? `status: ${exclude ? "not " : ""}${ids.join(", ")}`
-              : "status filter cleared",
+            next ? `status: ${exclude ? "not " : ""}${ids.join(", ")}` : "status filter cleared",
             "ok",
           );
         }}
-        onCancel={() => showModal({ kind: "filter-menu" })}
       />
     );
   }

@@ -15,14 +15,6 @@ type CommonProps = {
   title: string;
   items: FilterItem[];
   placeholder?: string;
-  /**
-   * Single-select: Enter picks one item and the caller closes. Unused (and may
-   * be omitted) when `multiSelect` is set — see `onApply`. `exclude` is always
-   * `false` unless `allowExclude` is set.
-   */
-  onPick?: (id: string, exclude: boolean) => void;
-  onCancel: () => void;
-  onClear?: () => void;
   currentId?: string;
   borderColor?: string;
   submitLabel?: string;
@@ -31,17 +23,35 @@ type CommonProps = {
   /** Adds a Tab toggle between "show only" and "exclude" modes. */
   allowExclude?: boolean;
   initialExclude?: boolean;
-  /**
-   * Multi-select mode: Enter toggles the item's membership and the picker stays
-   * open; ⌃x deselects all. Nothing is applied until the user leaves (Esc),
-   * which hands the whole selection to `onApply`.
-   */
-  multiSelect?: boolean;
-  initialSelected?: readonly string[];
-  onApply?: (ids: string[], exclude: boolean) => void;
 };
 
-type LocalProps = CommonProps & {
+/**
+ * Select mode is a discriminated union so callers cannot mix the two prop sets:
+ * single-select requires `onPick` (+ `onCancel`), multi-select requires
+ * `onApply`. In multi-select Enter toggles the item's membership and the picker
+ * stays open; ⌃x deselects all; nothing is applied until the user leaves (Esc),
+ * which hands the whole selection to `onApply`.
+ */
+type SingleSelectProps = {
+  multiSelect?: false;
+  /** `exclude` is always `false` unless `allowExclude` is set. */
+  onPick: (id: string, exclude: boolean) => void;
+  onCancel: () => void;
+  onClear?: () => void;
+  onApply?: never;
+  initialSelected?: never;
+};
+
+type MultiSelectProps = {
+  multiSelect: true;
+  onApply: (ids: string[], exclude: boolean) => void;
+  initialSelected?: readonly string[];
+  onPick?: never;
+  onCancel?: never;
+  onClear?: never;
+};
+
+type LocalProps = {
   onQueryChange?: never;
   itemsQuery?: never;
   loading?: never;
@@ -49,7 +59,7 @@ type LocalProps = CommonProps & {
   onRetry?: never;
 };
 
-type RemoteProps = CommonProps & {
+type RemoteProps = {
   onQueryChange: (query: string) => void;
   /** Query that produced both `items` and `error`. */
   itemsQuery: string;
@@ -58,7 +68,7 @@ type RemoteProps = CommonProps & {
   onRetry?: (query: string) => void;
 };
 
-type Props = LocalProps | RemoteProps;
+type Props = CommonProps & (SingleSelectProps | MultiSelectProps) & (LocalProps | RemoteProps);
 
 function filterItems(items: FilterItem[], query: string): FilterItem[] {
   const lower = query.toLowerCase().trim();
@@ -101,7 +111,13 @@ export function FilterPicker({
 }: Props) {
   const { cols: termCols, rows: termRows } = useDimensions();
   const [exclude, setExclude] = useState(initialExclude);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelected ?? []));
+  // Drop any seeded ids that are no longer present in `items` (e.g. a status
+  // whose last card disappeared on refresh) so the picker never shows a count
+  // for an unchecked row or re-applies a vanished value.
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const known = new Set(items.map((it) => it.id));
+    return new Set((initialSelected ?? []).filter((id) => known.has(id)));
+  });
   const toggleSelected = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -113,7 +129,7 @@ export function FilterPicker({
   // whole accumulated selection at once (nothing changed the board until now).
   const leave = () => {
     if (multiSelect) onApply?.(Array.from(selected), exclude);
-    else onCancel();
+    else onCancel?.();
   };
   // Padding, borders, title, input, indicators, and footer need 14 rows.
   const maxPickerRows = Math.max(1, Math.min(15, termRows - 14));
